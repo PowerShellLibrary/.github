@@ -1,0 +1,86 @@
+name: Publish PowerShell Module
+
+on:
+  workflow_call:
+
+jobs:
+  publish-module:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Locate Module
+        id: locate-module
+        shell: pwsh
+        run: |
+          $manifest = Get-ChildItem -Path . -Recurse -Filter *.psd1 | Select-Object -First 1
+          if (-not $manifest) {
+            Write-Error "No module manifest (.psd1) file found in the repository."
+            exit 1
+          }
+          Write-Host "Module Manifest: $($manifest.FullName)"
+          echo "ModuleManifestPath=$($manifest.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Parse Module Version
+        id: parse-version
+        shell: pwsh
+        run: |
+          $manifestPath = $env:ModuleManifestPath
+          Get-Content $manifestPath | Set-Content -Path "manifest.ps1"
+          $manifest = . ./manifest.ps1
+          Remove-Item -Path "manifest.ps1"
+
+          $ModuleName = Get-Item -Path $manifestPath | Select-Object -ExpandProperty BaseName
+          $ModuleVersion = $manifest.ModuleVersion
+
+          Write-Host "Module Name: $ModuleName" -ForegroundColor green
+          Write-Host "Module Version: $ModuleVersion"
+
+          echo "ModuleName=$($ModuleName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "ModuleVersion=$($ModuleVersion)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Check Published Version
+        id: check-version
+        shell: pwsh
+        run: |
+          $moduleName = $env:ModuleName
+          $moduleVersion = [version]$env:ModuleVersion
+
+          $publishedVersion = Find-Module -Name $moduleName -Repository PSGallery | Select-Object -ExpandProperty Version
+          if ($publishedVersion -and ([version]$publishedVersion -ge $moduleVersion)) {
+            Write-Host "No new version to publish. Current: $publishedVersion, Module: $moduleVersion"
+            exit 1
+          }
+
+      - name: Publish Module to PowerShell Gallery
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          Write-Host "Publishing module to PowerShell Gallery"
+          $modulePath = Split-Path -Path $env:ModuleManifestPath
+          Publish-Module -Path $modulePath -NuGetApiKey $env:NUGET_API_KEY
+
+      - name: Create Git Tag
+        id: create-tag
+        shell: pwsh
+        run: |
+          $version = $env:ModuleVersion
+          $tagName = "v$version"
+
+          Write-Host "Creating tag: $tagName"
+
+          $existingTag = git tag --list $tagName
+          if ($existingTag) {
+            Write-Host "Tag $tagName already exists. Skipping tag creation."
+          }
+          else {
+            git config --global user.email "actions@github.com"
+            git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+            git config --global user.name "${{ github.actor }}"
+
+            git tag $tagName
+            git push origin $tagName
+          }
