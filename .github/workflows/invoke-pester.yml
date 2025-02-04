@@ -2,6 +2,10 @@ name: Invoke Pester Tests
 
 on:
   workflow_call:
+    secrets:
+      ENV_VARIABLES:
+        description: "Serialized environment variables (base64 encoded JSON)"
+        required: false
 
 jobs:
   test-module:
@@ -10,6 +14,22 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+
+      - name: Load environment variables
+        if: env.ENV_VARIABLES
+        run: |
+          $json = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:ENV_VARIABLES))
+          $obj = ConvertFrom-Json $json
+          $obj.PSObject.Properties | % {
+          $key = $_.Name
+          $value = $_.Value
+          Write-Host "Setting environment variable: $Key=********" -ForegroundColor Green
+          Set-Item "env:$key" $value
+          echo "$key=$value" >> $env:GITHUB_ENV
+          }
+        shell: pwsh
+        env:
+          ENV_VARIABLES: ${{ secrets.ENV_VARIABLES }}
 
       - name: Install Pester Module
         shell: pwsh
