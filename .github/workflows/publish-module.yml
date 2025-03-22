@@ -66,6 +66,8 @@ jobs:
       - name: Create Git Tag
         id: create-tag
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_PUBLISH_MODULE }}
         run: |
           $version = $env:ModuleVersion
           $tagName = "v$version"
