@@ -54,6 +54,42 @@ jobs:
             exit 1
           }
 
+      - name: Install Required Modules
+        shell: pwsh
+        run: |
+          $manifest = Import-PowerShellDataFile -Path $env:ModuleManifestPath
+          foreach ($dependency in $manifest.RequiredModules) {
+            if ($dependency -is [string]) {
+              $moduleName = $dependency
+              Install-Module -Name $moduleName -Repository PSGallery -Scope CurrentUser -Force -ErrorAction Stop
+              continue
+            }
+
+            $moduleName = $dependency.ModuleName
+            $installParameters = @{
+              Name        = $moduleName
+              Repository  = 'PSGallery'
+              Scope       = 'CurrentUser'
+              Force       = $true
+              ErrorAction = 'Stop'
+            }
+
+            if ($dependency.RequiredVersion) {
+              $installParameters.RequiredVersion = $dependency.RequiredVersion
+            }
+            else {
+              if ($dependency.ModuleVersion) {
+                $installParameters.MinimumVersion = $dependency.ModuleVersion
+              }
+              if ($dependency.MaximumVersion) {
+                $installParameters.MaximumVersion = $dependency.MaximumVersion
+              }
+            }
+
+            Install-Module @installParameters
+          }
+          Test-ModuleManifest -Path $env:ModuleManifestPath -ErrorAction Stop | Out-Null
+
       - name: Publish Module to PowerShell Gallery
         shell: pwsh
         env:
